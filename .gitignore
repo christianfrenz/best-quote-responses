@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+*.egg-info/
+
+# Models cache
+models/
+
+# Flutter / Dart
+src/app/.dart_tool/
+src/app/.flutter-plugins
+src/app/.flutter-plugins-dependencies
+src/app/build/
+src/app/.packages
+src/app/pubspec.lock
+src/app/ios/Pods/
+src/app/android/.gradle/
+
+# OS / IDE
+.DS_Store
+.idea/
+*.iml

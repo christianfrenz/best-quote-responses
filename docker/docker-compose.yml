@@ -1,0 +1,40 @@
+# Run from the repo root:  docker compose -f docker/docker-compose.yml up --build
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: quotes
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d quotes"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ..
+      dockerfile: docker/backend.Dockerfile
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/quotes
+      EMBEDDING_MODEL: sentence-transformers/all-MiniLM-L6-v2
+      EMBEDDING_DIM: "384"
+      CORS_ORIGINS: "http://localhost,http://localhost:3000,http://localhost:8080"
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      # Cache the downloaded embedding model between runs.
+      - models:/models
+
+volumes:
+  pgdata:
+  models:
