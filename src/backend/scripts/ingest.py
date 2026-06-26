@@ -1,9 +1,9 @@
 """Ingest real quotes from public web sources into the database.
 
 Sources:
-  * Quotable API (https://github.com/lukePeavey/quotable) — quotes with authors,
-    spanning politicians, writers, athletes, philosophers, etc. Each quote is
-    linked to the author's Wikiquote page as its source.
+  * Public quotes dataset (JamesFT/Database-Quotes-JSON on GitHub) — ~5k quotes
+    with authors, spanning politicians, writers, athletes, philosophers, etc.
+    Each quote is linked to the author's Wikiquote page as its source.
   * Public-domain KJV Bible JSON — wisdom and gospel books by default. Each verse
     links to its BibleGateway passage.
 
@@ -16,6 +16,7 @@ Re-running is safe: duplicate (text, author) pairs are skipped.
 
 from __future__ import annotations
 
+import json
 import sys
 from urllib.parse import quote_plus
 
@@ -33,7 +34,9 @@ from app.models import Quote  # noqa: E402
 
 settings = get_settings()
 
-QUOTABLE_BASE = "https://api.quotable.io"
+QUOTES_JSON_URL = (
+    "https://raw.githubusercontent.com/JamesFT/Database-Quotes-JSON/master/quotes.json"
+)
 BIBLE_JSON_URL = (
     "https://raw.githubusercontent.com/thiagobodruk/bible/master/json/en_kjv.json"
 )
@@ -45,38 +48,40 @@ BIBLE_BOOKS = {"Psalms", "Proverbs", "Ecclesiastes", "Matthew", "John"}
 def _get_json(client: httpx.Client, url: str, **params):
     resp = client.get(url, params=params, timeout=30.0)
     resp.raise_for_status()
-    return resp.json()
+    # Some public datasets are not UTF-8 (e.g. Windows-1252 em dashes).
+    try:
+        return resp.json()
+    except UnicodeDecodeError:
+        return json.loads(resp.content.decode("cp1252"))
 
 
-def fetch_quotable(client: httpx.Client, limit: int) -> list[dict]:
-    """Fetch quotes from the Quotable API, paginated."""
+def fetch_web_quotes(client: httpx.Client, limit: int) -> list[dict]:
+    """Fetch quotes from a public GitHub-hosted quotes dataset."""
+    data = _get_json(client, QUOTES_JSON_URL)
     collected: list[dict] = []
-    page = 1
-    while True:
-        data = _get_json(client, f"{QUOTABLE_BASE}/quotes", page=page, limit=150)
-        for q in data.get("results", []):
-            author = (q.get("author") or "").strip()
-            tags = q.get("tags") or []
-            source_url = (
-                f"https://en.wikiquote.org/wiki/{quote_plus(author.replace(' ', '_'))}"
-                if author
-                else "https://en.wikiquote.org"
-            )
-            collected.append(
-                {
-                    "text": q["content"].strip(),
-                    "author": author or None,
-                    "category": tags[0] if tags else None,
-                    "source_name": "Wikiquote",
-                    "source_url": source_url,
-                }
-            )
-            if limit and len(collected) >= limit:
-                return collected
-        if page >= data.get("totalPages", page):
+    for q in data:
+        text = (q.get("quoteText") or "").strip()
+        author = (q.get("quoteAuthor") or "").strip()
+        if not text:
+            continue
+        source_url = (
+            f"https://en.wikiquote.org/wiki/{quote_plus(author.replace(' ', '_'))}"
+            if author
+            else "https://en.wikiquote.org"
+        )
+        collected.append(
+            {
+                "text": text,
+                "author": author or None,
+                "category": None,
+                "source_name": "Wikiquote",
+                "source_url": source_url,
+            }
+        )
+        if limit and len(collected) >= limit:
             break
-        page += 1
     return collected
+
 
 
 def fetch_bible(client: httpx.Client) -> list[dict]:
@@ -132,8 +137,8 @@ def store(rows: list[dict]) -> int:
 def main() -> None:
     Base.metadata.create_all(bind=engine)
     with httpx.Client(headers={"User-Agent": "best-quote-responses/0.1"}) as client:
-        print("Fetching quotes from Quotable...")
-        rows = fetch_quotable(client, settings.ingest_quotable_limit)
+        print("Fetching web quotes...")
+        rows = fetch_web_quotes(client, settings.ingest_quotable_limit)
         print(f"  fetched {len(rows)} quotes")
 
         if settings.ingest_bible_enabled:
