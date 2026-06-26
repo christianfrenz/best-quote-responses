@@ -1,7 +1,10 @@
 # Run from the repo root:  docker compose -f docker/docker-compose.yml up --build
+name: best-quote-responses
+
 services:
   db:
     image: pgvector/pgvector:pg16
+    container_name: bqr-postgres
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -21,6 +24,7 @@ services:
     build:
       context: ..
       dockerfile: docker/backend.Dockerfile
+    container_name: bqr-backend
     environment:
       DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/quotes
       EMBEDDING_MODEL: sentence-transformers/all-MiniLM-L6-v2
